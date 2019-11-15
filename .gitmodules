@@ -1,0 +1,3 @@
+[submodule "external/soot"]
+	path = external/soot
+	url = git@github.com:eyolfson/soot.git
