@@ -58,7 +58,7 @@ class InlineCall(models.Model):
 
     class Meta:
         unique_together = ('project', 'callsite')
-   
+
 class InvokeVirtualTerminator(models.Model):
     compile_thread = models.ForeignKey(CompileThread, on_delete=models.CASCADE)
     callsite = models.ForeignKey(Callsite, on_delete=models.CASCADE)
