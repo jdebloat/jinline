@@ -61,14 +61,15 @@ class Visitor:
 
     def create_inline_calls(self):
         for callsite, callees in self.possible_inline_callsites.items():
-            if len(callees) != 1:
+            if len(callees) > 2:
                 continue
-            callee = callees[0]
-            if callsite in self.blacklisted_inline_callsites:
-                continue
-            inline_call, _ = InlineCall.objects.get_or_create(project=self.project,
-                                                              callsite=callsite,
-                                                              callee=callee)
+
+            for callee in callees:
+                if callsite in self.blacklisted_inline_callsites:
+                    continue
+                    inline_call, _ = InlineCall.objects.get_or_create(project=self.project,
+                                                                      callsite=callsite,
+                                                                      callee=callee)
 
     def add_terminator(self, callsite, tag, reason=''):
         InvokeVirtualTerminator.objects.create(compile_thread=self.current_compile_thread,
@@ -259,6 +260,8 @@ class Visitor:
             elif child.tag == 'dependency_failed':
                 pass
             elif child.tag == 'eliminate_allocation':
+                pass
+            elif child.tag == 'eliminate_boxing':
                 pass
             elif child.tag == 'eliminate_lock':
                 pass
