@@ -67,9 +67,9 @@ class Visitor:
             for callee in callees:
                 if callsite in self.blacklisted_inline_callsites:
                     continue
-                    inline_call, _ = InlineCall.objects.get_or_create(project=self.project,
-                                                                      callsite=callsite,
-                                                                      callee=callee)
+                inline_call, _ = InlineCall.objects.get_or_create(project=self.project,
+                                                                  callsite=callsite,
+                                                                  callee=callee)
 
     def add_terminator(self, callsite, tag, reason=''):
         InvokeVirtualTerminator.objects.create(compile_thread=self.current_compile_thread,
