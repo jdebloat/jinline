@@ -57,7 +57,7 @@ class InlineCall(models.Model):
         return '{} {}'.format(str(self.callsite), str(self.callee))
 
     class Meta:
-        unique_together = ('project', 'callsite')
+        unique_together = ('project', 'callsite', 'callee')
 
 class InvokeVirtualTerminator(models.Model):
     compile_thread = models.ForeignKey(CompileThread, on_delete=models.CASCADE)
