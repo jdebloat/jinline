@@ -8,8 +8,10 @@ import soot.CharType;
 import soot.DoubleType;
 import soot.FloatType;
 import soot.IntType;
+import soot.Local;
 import soot.LongType;
 import soot.PackManager;
+import soot.PatchingChain;
 import soot.PrimType;
 import soot.PhaseOptions;
 import soot.RefType;
@@ -17,13 +19,24 @@ import soot.Scene;
 import soot.SceneTransformer;
 import soot.ShortType;
 import soot.SootMethod;
+import soot.SootMethodRef;
 import soot.SootClass;
 import soot.Transform;
 import soot.Type;
 import soot.Unit;
 import soot.Value;
+import soot.jimple.AssignStmt;
+import soot.jimple.GotoStmt;
+import soot.jimple.IfStmt;
 import soot.jimple.InvokeExpr;
+import soot.jimple.InvokeStmt;
+import soot.jimple.Jimple;
+import soot.jimple.NeExpr;
+import soot.jimple.NopStmt;
+import soot.jimple.StaticInvokeExpr;
 import soot.jimple.Stmt;
+import soot.jimple.StringConstant;
+import soot.jimple.VirtualInvokeExpr;
 import soot.jimple.toolkits.invoke.InlinerSafetyManager;
 import soot.jimple.toolkits.invoke.SiteInliner;
 import soot.options.Options;
@@ -37,6 +50,7 @@ import java.io.IOException;
 import java.lang.RuntimeException;
 import java.lang.StringBuilder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -224,20 +238,27 @@ public class InlinerTransformer extends SceneTransformer {
 				break;
 			}
 			SootMethod foundSootCallee = bytecodeOffsetFoundMap.get(bytecodeOffsetKey);
-			List<String> targetList= bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
-			String calleeHotSpotSignature = targetList.get(0);
+			List<String> targetList = bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
 
 			if (targetList.size() > 1) {
-				System.out.format("%s has more than 1 target\n", foundSootCallee.getName());
+				System.err.format("%s has %d targets\n", callerSignature, targetList.size());
+			}
+
+			if (targetList.size() > 2) {
+				System.out.format("%s has more than 2 targets\n", foundSootCallee.getName());
 				return;
 			}
-			if (!methodMap.containsKey(calleeHotSpotSignature)) {
-				continue;
-			}
-			SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
-			if (!foundSootCallee.getName().equals(sootCallee.getName())) {
-				match = false;
-				break;
+
+			for (String calleeHotSpotSignature : targetList) {
+				if (!methodMap.containsKey(calleeHotSpotSignature)) {
+					break;
+				}
+
+				SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
+				if (!foundSootCallee.getName().equals(sootCallee.getName())) {
+					match = false;
+					break;
+				}
 			}
 		}
 		if (!match) {
@@ -266,26 +287,196 @@ public class InlinerTransformer extends SceneTransformer {
 			}
 
 			List<String> targets = bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
-			String calleeHotSpotSignature = targets.get(0);
 
-			if (targets.size() > 1) {
-				System.out.format("%s has multiple targets");
+			if (targets.size() > 2) {
+				System.out.format("%s has more than 2 targets");
 				continue;
+			} else if (targets.size() == 1) {
+				handleSingleInline(targets.get(0), stmt, sootCaller);
+			} else { // targets.size == 2
+				handleDoubleInline(targets, stmt, sootCaller, body);
 			}
+		}
+	}
 
-			if (!methodMap.containsKey(calleeHotSpotSignature)) {
-			    continue;
-			}
+	private void handleSingleInline(String calleeHotSpotSignature,
+									Stmt stmt,
+									SootMethod sootCaller) {
+		if (!methodMap.containsKey(calleeHotSpotSignature)) {
+		    return;
+		}
+		SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
+		sootCallee.retrieveActiveBody();
+
+		boolean safeToInline =
+			InlinerSafetyManager.ensureInlinability(
+				sootCallee, stmt, sootCaller, "unsafe");
+		if (!safeToInline) {
+			return;
+		}
+		SiteInliner.inlineSite(sootCallee, stmt, sootCaller);
+	}
+
+	private void handleDoubleInline(List<String> targets,
+									Stmt stmt,
+									SootMethod sootCaller,
+									Body body) {
+		if (targets.size() != 2) {
+			return;
+		}
+
+		InvokeExpr invokeExpr = stmt.getInvokeExpr();
+
+		if (!(invokeExpr instanceof VirtualInvokeExpr)) {
+			return;
+		}
+
+		boolean safe = true;
+		for (String calleeHotSpotSignature : targets) {
 			SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
 			sootCallee.retrieveActiveBody();
+
+			if (!methodMap.containsKey(calleeHotSpotSignature)) {
+			    safe = false;
+				break;
+			}
 
 			boolean safeToInline =
 				InlinerSafetyManager.ensureInlinability(
 					sootCallee, stmt, sootCaller, "unsafe");
+
 			if (!safeToInline) {
-				continue;
+				safe = false;
+				break;
 			}
-			SiteInliner.inlineSite(sootCallee, stmt, sootCaller);
 		}
+
+		if (!safe) {
+			return;
+		}
+
+		PatchingChain units = body.getUnits();
+
+		String calleeHotspotSignatureA = targets.get(0);
+		String calleeHotspotSignatureB = targets.get(1);
+		SootMethod calleeA = methodMap.get(calleeHotspotSignatureA);
+		SootMethod calleeB = methodMap.get(calleeHotspotSignatureB);
+		SootClass classA = calleeA.getDeclaringClass();
+		SootClass classB = calleeB.getDeclaringClass();
+		String classAName = classA.getName().replace('.', '/');
+		String classBName = classB.getName().replace('.', '/');
+
+		VirtualInvokeExpr vInvokeExpr = (VirtualInvokeExpr) invokeExpr;
+		Local base = (Local) vInvokeExpr.getBase();
+
+		SootMethod getClass = getSootMethod(base.getType().toString(),
+											"getClass",
+											"java.lang.Class",
+											null);
+		String[] forNameArgs = {"java.lang.String"};
+		SootMethod forName = getSootMethod("java.lang.Class",
+										   "forName",
+											"java.lang.Class",
+											Arrays.asList(forNameArgs));
+		SootMethodRef getClassMethodref = getClass.makeRef();
+		SootMethodRef forNameMethodRef = forName.makeRef();
+
+		VirtualInvokeExpr typeInvokeExpr =
+							Jimple.v().newVirtualInvokeExpr(base,
+														    getClassMethodref);
+
+
+		Local typeLocal = Jimple.v().newLocal("type",
+											  getClass.getReturnType());
+		Local typeA = Jimple.v().newLocal("typeA",
+											   getClass.getReturnType());
+		Local typeB = Jimple.v().newLocal("typeB",
+											   getClass.getReturnType());
+		body.getLocals().add(typeLocal);
+		body.getLocals().add(typeA);
+		body.getLocals().add(typeB);
+
+		StringConstant typeAString = StringConstant.v(classAName);
+		StringConstant typeBString = StringConstant.v(classBName);
+
+		StaticInvokeExpr forClassAExpr =
+							Jimple.v().newStaticInvokeExpr(forNameMethodRef,
+														   typeAString);
+		StaticInvokeExpr forClassBExpr =
+							Jimple.v().newStaticInvokeExpr(forNameMethodRef,
+														   typeBString);
+
+		// type = receiver.getClass()
+		// typeA = classA
+		// typeB = classB
+		// stmt
+		// clonedstmt
+		// done
+		AssignStmt typeAssignment = Jimple.v().newAssignStmt(typeLocal,
+															 typeInvokeExpr);
+		AssignStmt typeAAssignment = Jimple.v().newAssignStmt(typeA,
+															  forClassAExpr);
+		AssignStmt typeBAssignment = Jimple.v().newAssignStmt(typeB,
+															  forClassAExpr);
+		Stmt clonedStmt = (Stmt) stmt.clone();
+		units.insertAfter(clonedStmt, stmt);
+
+		units.insertBefore(typeAssignment, stmt);
+		units.insertAfter(typeAAssignment, typeAssignment);
+		units.insertAfter(typeBAssignment, typeAAssignment);
+
+		NopStmt done = Jimple.v().newNopStmt();
+		units.insertAfter(done, clonedStmt);
+
+		// if type != typeA goto l2
+		//    inline typeA.foo
+		//    goto done
+		// l2:
+		// if type != typeB goto done
+		//    inline typeB.foo
+        // done:
+		NeExpr typeAComparison = Jimple.v().newNeExpr(typeLocal, typeA);
+		NeExpr typeBComparison = Jimple.v().newNeExpr(typeLocal, typeB);
+
+		IfStmt typeBIf = Jimple.v().newIfStmt(typeBComparison, done);
+		IfStmt typeAIf = Jimple.v().newIfStmt(typeAComparison, typeBIf);
+		units.insertBefore(typeAIf, stmt);
+		units.insertBefore(typeBIf, clonedStmt);
+
+		GotoStmt gotoDone = Jimple.v().newGotoStmt(done);
+		units.insertAfter(gotoDone, stmt);
+
+		SiteInliner.inlineSite(calleeA, stmt, sootCaller);
+		SiteInliner.inlineSite(calleeB, clonedStmt, sootCaller);
+	}
+
+	private SootMethod getSootMethod(String className,
+									 String methodName,
+									 String retType,
+									 List<String> args) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("<");
+		sb.append(className); // qualified.class.name
+		sb.append(":");
+		sb.append(retType); // return type
+		sb.append(" ");
+		sb.append(methodName); // methodName(P1, P2)
+		sb.append("(");
+
+		if (args != null) {
+			for (int i = 0; i < args.size(); ++i) {
+				String arg = args.get(i);
+				sb.append(arg);
+
+				if (i != args.size()-1) {
+					sb.append(",");
+				}
+			}
+		}
+
+		sb.append(")");
+		sb.append(">");
+
+		return Scene.v().getMethod(sb.toString());
 	}
 }
