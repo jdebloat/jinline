@@ -62,14 +62,7 @@ class Visitor:
 
     def create_inline_calls(self):
         for callsite, callees in self.possible_inline_callsites.items():
-            #if len(callees) > 2:
-            #    continue
-
-            print('callsite = {}, num callee = {}'.format(callsite, len(callees)))
             if callsite in self.blacklisted_inline_callsites:
-                callsite_name = str(callsite)
-                print('\tblacklist {}:'.format(callsite))
-                print('\t\t{}'.format(', '.join(self.blacklist_reasons[callsite_name])))
                 continue
 
             for callee in callees:
@@ -106,8 +99,6 @@ class Visitor:
                       'call site not reached',
                       'failed initial checks',
                       'no static binding',
-                      #'already compiled into a medium method',
-                      #'already compiled into a big method',
                       'NodeCountInliningCutoff',
                       'unloaded signature classes',
                       'exception method',
@@ -180,7 +171,6 @@ class Visitor:
                         receiver1 = None
                         receiver2 = None
                         current_callsite = None
-                        print('throw away recvs')
 
                     assert current_callsite is None
                     current_callsite = self.get_callsite(int(node.attrib['method']),
@@ -282,10 +272,8 @@ class Visitor:
 
                     if receiver1 is not None:
                         receiver1 = None
-                        print('inline recv1 : {} -> {}'.format(current_callsite, current_call))
                     elif receiver2 is not None:
                         receiver2 = None
-                        print('inline recv2 : {} -> {}'.format(current_callsite, current_call))
                         current_callsite = None
                     else:
                         current_callsite = None

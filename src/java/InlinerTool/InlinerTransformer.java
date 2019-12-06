@@ -240,12 +240,7 @@ public class InlinerTransformer extends SceneTransformer {
 			SootMethod foundSootCallee = bytecodeOffsetFoundMap.get(bytecodeOffsetKey);
 			List<String> targetList = bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
 
-			if (targetList.size() > 1) {
-				System.err.format("%s has %d targets\n", callerSignature, targetList.size());
-			}
-
 			if (targetList.size() > 2) {
-				System.out.format("%s has more than 2 targets\n", foundSootCallee.getName());
 				return;
 			}
 
@@ -288,13 +283,7 @@ public class InlinerTransformer extends SceneTransformer {
 
 			List<String> targets = bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
 
-            if (targets.size() == 2) {
-                System.out.println("found double inline site");
-                System.out.println(stmt);
-            }
-
 			if (targets.size() > 2) {
-				System.out.format("%s has more than 2 targets(%d)\n", stmt,targets.size());
 				continue;
 			} else if (targets.size() == 1) {
 				handleSingleInline(targets.get(0), stmt, sootCaller);
