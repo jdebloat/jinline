@@ -17,6 +17,7 @@ class Visitor:
         self.model_method_lookup = {}
         self.possible_inline_callsites = collections.defaultdict(list)
         self.blacklisted_inline_callsites = set()
+        self.blacklist_reasons = {}
 
     def add_log_klass_entry(self, klass_id, name):
         if name in self.model_klass_lookup:
@@ -61,12 +62,17 @@ class Visitor:
 
     def create_inline_calls(self):
         for callsite, callees in self.possible_inline_callsites.items():
-            if len(callees) > 2:
+            #if len(callees) > 2:
+            #    continue
+
+            print('callsite = {}, num callee = {}'.format(callsite, len(callees)))
+            if callsite in self.blacklisted_inline_callsites:
+                callsite_name = str(callsite)
+                print('\tblacklist {}:'.format(callsite))
+                print('\t\t{}'.format(', '.join(self.blacklist_reasons[callsite_name])))
                 continue
 
             for callee in callees:
-                if callsite in self.blacklisted_inline_callsites:
-                    continue
                 inline_call, _ = InlineCall.objects.get_or_create(project=self.project,
                                                                   callsite=callsite,
                                                                   callee=callee)
@@ -83,14 +89,40 @@ class Visitor:
         self.log_type_lookup = {}
 
     def handle_inline_fail(self, callsite, reason):
-        if reason in ['callee is too large', 'inlining prohibited by policy']:
+        if reason in ['callee is too large', 'inlining prohibited by policy',
+                      'too big', 'receiver not constant',
+                      'already compiled into a medium method',
+                      'already compiled into a big method',
+                      'total inlining greater than DesiredMethodLimit']:
             return
 
-        # if reason in ['native method', 'no static binding', 'not inlineable',
-        #               'recursive inlining too deep']:
-        #     return
+        if reason in ['native method',
+                      'no static binding',
+                      'not inlineable',
+                      'recursive inlining too deep',
+                      'recursive inlining is too deep',
+                      'inlining too deep',
+                      'callee\'s klass not initialized yet',
+                      'call site not reached',
+                      'failed initial checks',
+                      'no static binding',
+                      #'already compiled into a medium method',
+                      #'already compiled into a big method',
+                      'NodeCountInliningCutoff',
+                      'unloaded signature classes',
+                      'exception method',
+                      'hot method too big']:
+            self.blacklisted_inline_callsites.add(callsite)
 
-        self.blacklisted_inline_callsites.add(callsite)
+            callsite_name = str(callsite)
+            if callsite_name in self.blacklist_reasons:
+                self.blacklist_reasons[callsite_name].append(reason)
+            else:
+                self.blacklist_reasons[callsite_name] = [reason]
+            return
+
+        print(reason)
+        assert False
 
     def visit_klass(self, node):
         assert node.tag == 'klass'
@@ -115,7 +147,7 @@ class Visitor:
         assert node.tag == 'parse'
         if node.text:
             assert len(node.text.strip()) == 0
-    
+
         # Parse attributes
         assert 'method' in node.attrib
         if len(node.attrib) == 2:
@@ -124,9 +156,11 @@ class Visitor:
             assert 'uses' in node.attrib
         if len(node.attrib) == 4:
             assert 'osr_bci' in node.attrib
-    
+
         current_callsite = None
         current_call = None
+        receiver1 = None
+        receiver2 = None
 
         for child in node:
             if child.tag == 'assert_null':
@@ -142,6 +176,12 @@ class Visitor:
                 # - 185: invokeinterface
                 # - 186: invokedynamic
                 if child.attrib['code'] == '182':
+                    if receiver1 is not None or receiver2 is not None:
+                        receiver1 = None
+                        receiver2 = None
+                        current_callsite = None
+                        print('throw away recvs')
+
                     assert current_callsite is None
                     current_callsite = self.get_callsite(int(node.attrib['method']),
                                                          int(child.attrib['bci']))
@@ -149,18 +189,47 @@ class Visitor:
                     if current_callsite:
                         current_callsite = None
                         current_call = None
+                        receiver1 = None
+                        receiver2 = None
             elif child.tag == 'branch':
                 assert len(child) == 0
                 assert child.text is None
             elif child.tag == 'call':
                 assert len(child) == 0
                 assert child.text is None
-		# sanity check # of calls 
-                # multiple calls ?
                 # this is the only call before inline success
                 # save current call
                 # already have the current callsite
                 current_call = self.log_method_lookup[int(child.attrib['method'])]
+                if 'virtual' not in child.attrib:
+                    continue
+
+                if int(child.attrib['virtual']) != 1:
+                    continue
+
+                if 'inline' not in child.attrib:
+                    continue
+
+                if int(child.attrib['inline']) != 1:
+                    continue
+
+                if 'receiver' not in child.attrib:
+                    continue
+
+                if 'receiver2' not in child.attrib:
+                    continue
+
+                assert 'receiver_count' in child.attrib
+                assert 'receiver2_count' in child.attrib
+
+                # are receivers new? haven't seen a case
+                receiver1 = int(child.attrib['receiver'])
+                receiver2 = int(child.attrib['receiver2'])
+
+                # expect call, inline succ, call, inline succ
+                # before calls, may be a new method(declare)
+                # if either is an inline fail, dont use it
+                # sometimes <virtual_call bci='xy'> ??
             elif child.tag == 'cast_up':
                 assert len(child) == 0
                 assert child.text is None
@@ -176,11 +245,27 @@ class Visitor:
             elif child.tag == 'inline_fail':
                 assert len(child) == 0
                 assert child.text is None
-                if current_callsite:
-                    self.add_terminator(current_callsite, child.tag, child.attrib['reason'])
-                    self.handle_inline_fail(current_callsite, child.attrib['reason'])
+                if current_callsite is None:
+                    continue
+
+                self.add_terminator(current_callsite, child.tag, child.attrib['reason'])
+                self.handle_inline_fail(current_callsite, child.attrib['reason'])
+
+                blacklisted = current_callsite in self.blacklisted_inline_callsites
+                bimorphic = receiver1 is not None or receiver2 is not None
+                if not bimorphic or blacklisted:
                     current_callsite = None
                     current_call = None
+                    continue
+
+                self.create_possible_inline_call(current_callsite, current_call)
+
+                current_call = None
+                if receiver1:
+                    receiver1 = None
+                elif receiver2:
+                    receiver2 = None
+                    current_callsite = None
             elif child.tag == 'inline_level_discount':
                 assert len(child) == 0
                 assert child.text is None
@@ -194,8 +279,18 @@ class Visitor:
                     # only var should be call
                     self.add_terminator(current_callsite, child.tag, child.attrib['reason'])
                     self.create_possible_inline_call(current_callsite, current_call)
-                    current_callsite = None
+
+                    if receiver1 is not None:
+                        receiver1 = None
+                        print('inline recv1 : {} -> {}'.format(current_callsite, current_call))
+                    elif receiver2 is not None:
+                        receiver2 = None
+                        print('inline recv2 : {} -> {}'.format(current_callsite, current_call))
+                        current_callsite = None
+                    else:
+                        current_callsite = None
                     current_call = None
+                    # current_call will get reset by second call (call(parent), call(child), call(child)
             elif child.tag == 'intrinsic':
                 assert len(child) == 0
                 assert child.text is None
@@ -204,6 +299,8 @@ class Visitor:
                     # clear variables every add_terminator
                     current_callsite = None
                     current_call = None
+                    receiver1 = None
+                    receiver2 = None
             elif child.tag == 'klass':
                 self.visit_klass(child)
             elif child.tag == 'method':
@@ -215,7 +312,8 @@ class Visitor:
                 assert len(child) == 0
                 assert child.text is None
             elif child.tag == 'parse':
-                assert current_callsite is None
+                assert (receiver1 is not None or receiver2 is not None) or \
+                       current_callsite is None
                 self.visit_parse(child)
             elif child.tag == 'parse_done':
                 assert len(child) == 0
@@ -235,12 +333,15 @@ class Visitor:
                         self.add_terminator(current_callsite, child.tag, child.attrib['reason'])
                         current_callsite = None
                         current_call = None
-                        current_call = None
+                        receiver1 = None
+                        receiver2 = None
             elif child.tag == 'virtual_call':
                 if current_callsite:
                     self.add_terminator(current_callsite, child.tag)
                     current_callsite = None
                     current_call = None
+                    receiver1 = None
+                    receiver2 = None
                 assert len(child) == 0
                 assert child.text is None
             else:

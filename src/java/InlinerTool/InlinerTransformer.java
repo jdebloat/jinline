@@ -288,8 +288,13 @@ public class InlinerTransformer extends SceneTransformer {
 
 			List<String> targets = bytecodeOffsetCalleeMap.get(bytecodeOffsetKey);
 
+            if (targets.size() == 2) {
+                System.out.println("found double inline site");
+                System.out.println(stmt);
+            }
+
 			if (targets.size() > 2) {
-				System.out.format("%s has more than 2 targets");
+				System.out.format("%s has more than 2 targets(%d)\n", stmt,targets.size());
 				continue;
 			} else if (targets.size() == 1) {
 				handleSingleInline(targets.get(0), stmt, sootCaller);
@@ -333,13 +338,12 @@ public class InlinerTransformer extends SceneTransformer {
 
 		boolean safe = true;
 		for (String calleeHotSpotSignature : targets) {
-			SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
-			sootCallee.retrieveActiveBody();
-
 			if (!methodMap.containsKey(calleeHotSpotSignature)) {
 			    safe = false;
 				break;
 			}
+			SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
+			sootCallee.retrieveActiveBody();
 
 			boolean safeToInline =
 				InlinerSafetyManager.ensureInlinability(
