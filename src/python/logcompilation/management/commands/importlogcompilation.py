@@ -17,7 +17,6 @@ class Visitor:
         self.model_method_lookup = {}
         self.possible_inline_callsites = collections.defaultdict(list)
         self.blacklisted_inline_callsites = set()
-        self.blacklist_reasons = {}
 
     def add_log_klass_entry(self, klass_id, name):
         if name in self.model_klass_lookup:
@@ -82,38 +81,30 @@ class Visitor:
         self.log_type_lookup = {}
 
     def handle_inline_fail(self, callsite, reason):
-        if reason in ['callee is too large', 'inlining prohibited by policy',
-                      'too big', 'receiver not constant',
+        if reason in ['callee is too large',
+                      'inlining prohibited by policy',
+                      'too big',
+                      'receiver not constant',
                       'already compiled into a medium method',
                       'already compiled into a big method',
                       'total inlining greater than DesiredMethodLimit']:
             return
 
-        if reason in ['native method',
-                      'no static binding',
-                      'not inlineable',
-                      'recursive inlining too deep',
-                      'recursive inlining is too deep',
-                      'inlining too deep',
-                      'callee\'s klass not initialized yet',
-                      'call site not reached',
-                      'failed initial checks',
-                      'no static binding',
-                      'NodeCountInliningCutoff',
-                      'unloaded signature classes',
-                      'exception method',
-                      'hot method too big']:
-            self.blacklisted_inline_callsites.add(callsite)
-
-            callsite_name = str(callsite)
-            if callsite_name in self.blacklist_reasons:
-                self.blacklist_reasons[callsite_name].append(reason)
-            else:
-                self.blacklist_reasons[callsite_name] = [reason]
-            return
-
-        print(reason)
-        assert False
+        #if reason in ['native method',
+        #              'no static binding',
+        #              'not inlineable',
+        #              'recursive inlining too deep',
+        #              'recursive inlining is too deep',
+        #              'inlining too deep',
+        #              'callee\'s klass not initialized yet',
+        #              'call site not reached',
+        #              'failed initial checks',
+        #              'no static binding',
+        #              'NodeCountInliningCutoff',
+        #              'unloaded signature classes',
+        #              'exception method',
+        #              'hot method too big']:
+        self.blacklisted_inline_callsites.add(callsite)
 
     def visit_klass(self, node):
         assert node.tag == 'klass'

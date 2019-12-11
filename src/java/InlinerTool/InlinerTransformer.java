@@ -10,6 +10,7 @@ import soot.FloatType;
 import soot.IntType;
 import soot.Local;
 import soot.LongType;
+import soot.Modifier;
 import soot.PackManager;
 import soot.PatchingChain;
 import soot.PrimType;
@@ -22,8 +23,7 @@ import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.SootClass;
 import soot.Transform;
-import soot.Type;
-import soot.Unit;
+import soot.Type; import soot.Unit;
 import soot.Value;
 import soot.jimple.AssignStmt;
 import soot.jimple.GotoStmt;
@@ -299,8 +299,11 @@ public class InlinerTransformer extends SceneTransformer {
 		if (!methodMap.containsKey(calleeHotSpotSignature)) {
 		    return;
 		}
+
 		SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
-		sootCallee.retrieveActiveBody();
+		if (containsProtectedAbstractInvoke(sootCallee)) {
+			return;
+		}
 
 		boolean safeToInline =
 			InlinerSafetyManager.ensureInlinability(
@@ -308,6 +311,7 @@ public class InlinerTransformer extends SceneTransformer {
 		if (!safeToInline) {
 			return;
 		}
+
 		SiteInliner.inlineSite(sootCallee, stmt, sootCaller);
 	}
 
@@ -332,8 +336,11 @@ public class InlinerTransformer extends SceneTransformer {
 				break;
 			}
 			SootMethod sootCallee = methodMap.get(calleeHotSpotSignature);
-			sootCallee.retrieveActiveBody();
 
+			if (containsProtectedAbstractInvoke(sootCallee)) {
+				safe = false;
+				break;
+			}
 			boolean safeToInline =
 				InlinerSafetyManager.ensureInlinability(
 					sootCallee, stmt, sootCaller, "unsafe");
@@ -441,6 +448,23 @@ public class InlinerTransformer extends SceneTransformer {
 
 		SiteInliner.inlineSite(calleeA, stmt, sootCaller);
 		SiteInliner.inlineSite(calleeB, clonedStmt, sootCaller);
+	}
+
+    private boolean containsProtectedAbstractInvoke(SootMethod method) {
+		Body body = method.retrieveActiveBody();
+		Iterator units = body.getUnits().iterator();
+		while (units.hasNext()) {
+			Stmt invokeStmt = (Stmt) units.next();
+			if (!invokeStmt.containsInvokeExpr()) {
+				continue;
+			}
+
+			InvokeExpr ie = invokeStmt.getInvokeExpr();
+			if (ie.getMethod().isProtected() && ie.getMethod().isAbstract()) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private SootMethod getSootMethod(String className,
