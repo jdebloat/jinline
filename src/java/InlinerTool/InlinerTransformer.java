@@ -23,7 +23,8 @@ import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.SootClass;
 import soot.Transform;
-import soot.Type; import soot.Unit;
+import soot.Type;
+import soot.Unit;
 import soot.Value;
 import soot.jimple.AssignStmt;
 import soot.jimple.GotoStmt;
@@ -36,6 +37,7 @@ import soot.jimple.NopStmt;
 import soot.jimple.StaticInvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.StringConstant;
+import soot.jimple.ThrowStmt;
 import soot.jimple.VirtualInvokeExpr;
 import soot.jimple.toolkits.invoke.InlinerSafetyManager;
 import soot.jimple.toolkits.invoke.SiteInliner;
@@ -305,6 +307,10 @@ public class InlinerTransformer extends SceneTransformer {
 			return;
 		}
 
+		if (containsAbstractMethodError(sootCallee)) {
+			return;
+		}
+
 		boolean safeToInline =
 			InlinerSafetyManager.ensureInlinability(
 				sootCallee, stmt, sootCaller, "unsafe");
@@ -341,6 +347,12 @@ public class InlinerTransformer extends SceneTransformer {
 				safe = false;
 				break;
 			}
+
+			if (containsAbstractMethodError(sootCallee)) {
+				safe = false;
+				break;
+			}
+
 			boolean safeToInline =
 				InlinerSafetyManager.ensureInlinability(
 					sootCallee, stmt, sootCaller, "unsafe");
@@ -461,6 +473,31 @@ public class InlinerTransformer extends SceneTransformer {
 
 			InvokeExpr ie = invokeStmt.getInvokeExpr();
 			if (ie.getMethod().isProtected() && ie.getMethod().isAbstract()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean containsAbstractMethodError(SootMethod method) {
+		for (SootClass e : method.getExceptions()) {
+			if (e.getName().equals("java.lang.AbstractMethodError")) {
+				return true;
+			}
+		}
+
+		Body body = method.retrieveActiveBody();
+		Iterator units = body.getUnits().iterator();
+		while (units.hasNext()) {
+			Stmt stmt = (Stmt) units.next();
+			if (!(stmt instanceof ThrowStmt)) {
+				continue;
+			}
+
+			ThrowStmt throwStmt = (ThrowStmt) stmt;
+			Local local = (Local) throwStmt.getOp();
+			String type = local.getType().toString();
+			if (type.equals("java.lang.AbstractMethodError")) {
 				return true;
 			}
 		}
