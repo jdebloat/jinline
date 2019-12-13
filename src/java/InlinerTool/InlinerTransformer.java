@@ -19,6 +19,8 @@ import soot.RefType;
 import soot.Scene;
 import soot.SceneTransformer;
 import soot.ShortType;
+import soot.SootField;
+import soot.SootFieldRef;
 import soot.SootMethod;
 import soot.SootMethodRef;
 import soot.SootClass;
@@ -27,6 +29,7 @@ import soot.Type;
 import soot.Unit;
 import soot.Value;
 import soot.jimple.AssignStmt;
+import soot.jimple.FieldRef;
 import soot.jimple.GotoStmt;
 import soot.jimple.IfStmt;
 import soot.jimple.InvokeExpr;
@@ -311,6 +314,15 @@ public class InlinerTransformer extends SceneTransformer {
 			return;
 		}
 
+		SootClass callerClass = sootCaller.getDeclaringClass();
+		if (containsInterPackageProtectedInvoke(callerClass, sootCallee)) {
+			return;
+		}
+
+		if (containsInterPackageProtectedAccess(callerClass, sootCallee)) {
+			return;
+		}
+
 		boolean safeToInline =
 			InlinerSafetyManager.ensureInlinability(
 				sootCallee, stmt, sootCaller, "unsafe");
@@ -349,6 +361,17 @@ public class InlinerTransformer extends SceneTransformer {
 			}
 
 			if (containsAbstractMethodError(sootCallee)) {
+				safe = false;
+				break;
+			}
+
+			SootClass callerClass = sootCaller.getDeclaringClass();
+			if (containsInterPackageProtectedInvoke(callerClass, sootCallee)) {
+				safe = false;
+				break;
+			}
+
+			if (containsInterPackageProtectedAccess(callerClass, sootCallee)) {
 				safe = false;
 				break;
 			}
@@ -499,6 +522,74 @@ public class InlinerTransformer extends SceneTransformer {
 			String type = local.getType().toString();
 			if (type.equals("java.lang.AbstractMethodError")) {
 				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean containsInterPackageProtectedInvoke(SootClass callerClass, SootMethod target) {
+		Body body = target.retrieveActiveBody();
+		Iterator units = body.getUnits().iterator();
+
+		SootClass targetClass = target.getDeclaringClass();
+		String callerPackage = callerClass.getPackageName();
+		String targetPackage = targetClass.getPackageName();
+		if (callerPackage.equals(targetPackage)) {
+			return false;
+		}
+
+		// will inlining this target invoke a protected method
+		// from another package?
+		// go through every invoke statement to check
+		while (units.hasNext()) {
+			Stmt stmt = (Stmt) units.next();
+
+			if (!stmt.containsInvokeExpr()) {
+				continue;
+			}
+
+			InvokeExpr ie = stmt.getInvokeExpr();
+			SootMethod targetMethod = ie.getMethod();
+			if (targetMethod.isProtected()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean containsInterPackageProtectedAccess(SootClass callerClass, SootMethod target) {
+		Body body = target.retrieveActiveBody();
+		Iterator units = body.getUnits().iterator();
+
+		SootClass targetClass = target.getDeclaringClass();
+		String callerPackage = callerClass.getPackageName();
+		String targetPackage = targetClass.getPackageName();
+		if (callerPackage.equals(targetPackage)) {
+			return false;
+		}
+
+		while (units.hasNext()) {
+			Stmt stmt = (Stmt) units.next();
+			if (!(stmt instanceof AssignStmt)) {
+				continue;
+			}
+
+			AssignStmt as = (AssignStmt)stmt;
+			Value left = as.getLeftOp();
+			Value right = as.getRightOp();
+
+			if (left instanceof FieldRef) {
+				SootField f = ((FieldRef)left).getField();
+				if (f.isProtected()) {
+					return true;
+				}
+			}
+
+			if (right instanceof FieldRef) {
+				SootField f = ((FieldRef)right).getField();
+				if (f.isProtected()) {
+					return true;
+				}
 			}
 		}
 		return false;
