@@ -621,7 +621,7 @@ public class InlinerTransformer extends SceneTransformer {
 											retType,
 											args);
 
-		if (!Scene.containsMethod(name)) {
+		if (!Scene.v().containsMethod(name)) {
 			return null;
 		}
 

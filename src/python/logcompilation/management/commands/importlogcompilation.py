@@ -336,7 +336,9 @@ class Visitor:
             return
 
         for child in node:
-            if child.tag == 'comment':
+            if child.tag == 'call':
+                pass
+            elif child.tag == 'comment':
                 pass
             elif child.tag == 'dependency':
                 pass
@@ -349,6 +351,8 @@ class Visitor:
             elif child.tag == 'eliminate_lock':
                 pass
             elif child.tag == 'failure':
+                pass
+            elif child.tag == 'inline_fail':
                 pass
             elif child.tag == 'klass':
                 self.visit_klass(child)
