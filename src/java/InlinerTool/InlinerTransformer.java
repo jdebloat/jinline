@@ -404,10 +404,16 @@ public class InlinerTransformer extends SceneTransformer {
 		VirtualInvokeExpr vInvokeExpr = (VirtualInvokeExpr) invokeExpr;
 		Local base = (Local) vInvokeExpr.getBase();
 
-		SootMethod getClass = getSootMethod(base.getType().toString(),
-											"getClass",
-											"java.lang.Class",
-											null);
+		SootMethod getClass = getSootMethodOrNull(base.getType().toString(),
+												  "getClass",
+												  "java.lang.Class",
+												  null);
+
+		if (getClass == null) {
+			// base was an interface
+			return;
+		}
+
 		String[] forNameArgs = {"java.lang.String"};
 		SootMethod forName = getSootMethod("java.lang.Class",
 										   "forName",
@@ -599,6 +605,33 @@ public class InlinerTransformer extends SceneTransformer {
 									 String methodName,
 									 String retType,
 									 List<String> args) {
+		String name = buildSootMethodString(className,
+											methodName,
+											retType,
+											args);
+		return Scene.v().getMethod(name);
+	}
+
+	private SootMethod getSootMethodOrNull(String className,
+										   String methodName,
+										   String retType,
+										   List<String> args) {
+		String name = buildSootMethodString(className,
+											methodName,
+											retType,
+											args);
+
+		if (!Scene.containsMethod(name)) {
+			return null;
+		}
+
+		return Scene.v().getMethod(name);
+	}
+
+	private String buildSootMethodString(String className,
+										 String methodName,
+										 String retType,
+										 List<String> args) {
 		StringBuilder sb = new StringBuilder();
 		sb.append("<");
 		sb.append(className); // qualified.class.name
@@ -622,6 +655,6 @@ public class InlinerTransformer extends SceneTransformer {
 		sb.append(")");
 		sb.append(">");
 
-		return Scene.v().getMethod(sb.toString());
+		return sb.toString();
 	}
 }
