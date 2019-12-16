@@ -314,15 +314,18 @@ class Visitor:
                         current_call = None
                         receiver1 = None
                         receiver2 = None
+            elif child.tag == 'unknown':
+                assert len(child) == 0
+                assert child.text is None
             elif child.tag == 'virtual_call':
+                assert len(child) == 0
+                assert child.text is None
                 if current_callsite:
                     self.add_terminator(current_callsite, child.tag)
                     current_callsite = None
                     current_call = None
                     receiver1 = None
                     receiver2 = None
-                assert len(child) == 0
-                assert child.text is None
             else:
                 assert False, 'unhandled tag %r' % child.tag
 
@@ -356,6 +359,8 @@ class Visitor:
             elif child.tag == 'method':
                 self.visit_method(child)
             elif child.tag == 'method_not_compilable_at_tier':
+                pass
+            elif child.tag == 'observe':
                 pass
             elif child.tag == 'parse':
                 self.visit_parse(child)
