@@ -32,6 +32,7 @@ import soot.jimple.AssignStmt;
 import soot.jimple.FieldRef;
 import soot.jimple.GotoStmt;
 import soot.jimple.IfStmt;
+import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.InvokeExpr;
 import soot.jimple.InvokeStmt;
 import soot.jimple.Jimple;
@@ -323,6 +324,13 @@ public class InlinerTransformer extends SceneTransformer {
 			return;
 		}
 
+		String sootCalleeClassName =
+			sootCallee.getDeclaringClass().getName();
+		if (containsAbstractBase(stmt) &&
+			sootCalleeClassName.equals("java.lang.Object")) {
+			return;
+		}
+
 		boolean safeToInline =
 			InlinerSafetyManager.ensureInlinability(
 				sootCallee, stmt, sootCaller, "unsafe");
@@ -372,6 +380,14 @@ public class InlinerTransformer extends SceneTransformer {
 			}
 
 			if (containsInterPackageProtectedAccess(callerClass, sootCallee)) {
+				safe = false;
+				break;
+			}
+
+			String sootCalleeClassName =
+				sootCallee.getDeclaringClass().getName();
+			if (containsAbstractBase(stmt) &&
+				sootCalleeClassName.equals("java.lang.Object")) {
 				safe = false;
 				break;
 			}
@@ -626,6 +642,27 @@ public class InlinerTransformer extends SceneTransformer {
 		}
 
 		return Scene.v().getMethod(name);
+	}
+
+	private boolean containsAbstractBase(Stmt stmt) {
+		// checked containsInvokeExpr earlier
+		InvokeExpr ie = stmt.getInvokeExpr();
+		if (!(ie instanceof InstanceInvokeExpr)) {
+			return false;
+		}
+
+		InstanceInvokeExpr iie = (InstanceInvokeExpr) ie;
+		Local base = (Local) iie.getBase();
+		Type baseType = base.getType();
+
+		if (!(baseType instanceof RefType)) {
+			return false;
+		}
+
+		RefType baseRef = (RefType) baseType;
+		SootClass sootClass = baseRef.getSootClass();
+
+		return sootClass.isAbstract();
 	}
 
 	private String buildSootMethodString(String className,
