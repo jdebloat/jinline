@@ -331,6 +331,12 @@ public class InlinerTransformer extends SceneTransformer {
 			return;
 		}
 
+		if (sootCalleeClassName.equals("java.lang.Object") &&
+			containsOverriddenMethodCall(sootCaller.getDeclaringClass(),
+										 sootCallee)) {
+			return;
+		}
+
 		boolean safeToInline =
 			InlinerSafetyManager.ensureInlinability(
 				sootCallee, stmt, sootCaller, "unsafe");
@@ -388,6 +394,13 @@ public class InlinerTransformer extends SceneTransformer {
 				sootCallee.getDeclaringClass().getName();
 			if (containsAbstractBase(stmt) &&
 				sootCalleeClassName.equals("java.lang.Object")) {
+				safe = false;
+				break;
+			}
+
+			if (sootCalleeClassName.equals("java.lang.Object") &&
+				containsOverriddenMethodCall(sootCaller.getDeclaringClass(),
+											 sootCallee)) {
 				safe = false;
 				break;
 			}
@@ -663,6 +676,12 @@ public class InlinerTransformer extends SceneTransformer {
 		SootClass sootClass = baseRef.getSootClass();
 
 		return sootClass.isAbstract();
+	}
+
+	private boolean containsOverriddenMethodCall(SootClass callerClass,
+												 SootMethod callee) {
+		String methodSig = callee.getSubSignature();
+		return callerClass.declaresMethod(methodSig);
 	}
 
 	private String buildSootMethodString(String className,
