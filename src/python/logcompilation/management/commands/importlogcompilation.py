@@ -178,9 +178,6 @@ class Visitor:
             elif child.tag == 'call':
                 assert len(child) == 0
                 assert child.text is None
-                # this is the only call before inline success
-                # save current call
-                # already have the current callsite
                 current_call = self.log_method_lookup[int(child.attrib['method'])]
                 if 'virtual' not in child.attrib:
                     continue
@@ -203,14 +200,9 @@ class Visitor:
                 assert 'receiver_count' in child.attrib
                 assert 'receiver2_count' in child.attrib
 
-                # are receivers new? haven't seen a case
                 receiver1 = int(child.attrib['receiver'])
                 receiver2 = int(child.attrib['receiver2'])
 
-                # expect call, inline succ, call, inline succ
-                # before calls, may be a new method(declare)
-                # if either is an inline fail, dont use it
-                # sometimes <virtual_call bci='xy'> ??
             elif child.tag == 'cast_up':
                 assert len(child) == 0
                 assert child.text is None
@@ -254,10 +246,6 @@ class Visitor:
                 assert len(child) == 0
                 assert child.text is None
                 if current_callsite:
-                    # is method always called (not none here)
-                    # use callsite and call to InlineCall
-                    # clear variables every add_terminator
-                    # only var should be call
                     self.add_terminator(current_callsite, child.tag, child.attrib['reason'])
                     self.create_possible_inline_call(current_callsite, current_call)
 
@@ -269,13 +257,11 @@ class Visitor:
                     else:
                         current_callsite = None
                     current_call = None
-                    # current_call will get reset by second call (call(parent), call(child), call(child)
             elif child.tag == 'intrinsic':
                 assert len(child) == 0
                 assert child.text is None
                 if current_callsite:
                     self.add_terminator(current_callsite, child.tag)
-                    # clear variables every add_terminator
                     current_callsite = None
                     current_call = None
                     receiver1 = None
