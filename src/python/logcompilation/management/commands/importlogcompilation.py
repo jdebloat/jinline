@@ -84,6 +84,7 @@ class Visitor:
         if reason in ['callee is too large',
                       'inlining prohibited by policy',
                       'too big',
+                      'no static binding',
                       'receiver not constant',
                       'already compiled into a medium method',
                       'already compiled into a big method',
